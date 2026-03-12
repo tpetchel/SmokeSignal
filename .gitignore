@@ -418,6 +418,6 @@ FodyWeavers.xsd
 *.msp
 
 # SmokeSignal project-specific
-data/
-models/
+/data/
+/models/
 *.pt
