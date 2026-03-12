@@ -16,7 +16,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 ### 1. Fetch Sentinel-2 imagery
 
 ```powershell
-python -m src.data.fetch --bbox -121.5 39.5 -120.5 40.5 --dates 2025-08-01/2025-08-15
+python -m src.data.fetch --bbox -122.0 39.5 -121.2 40.3 --dates 2024-07-26/2024-08-10
 ```
 
 Adjust `--bbox` and `--dates` to target your wildfire ROI. Downloads 5-band GeoTIFFs to `data/raw/`.
