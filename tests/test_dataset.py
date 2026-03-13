@@ -16,17 +16,15 @@ from src.data.patch import compute_band_stats, normalize_patch
 
 @pytest.fixture()
 def tmp_dataset(tmp_path: Path):
-    """Create a tiny on-disk dataset (4 patches, 2 smoke + 2 clear)."""
+    """Create a tiny on-disk dataset (4 patches in a single stacked tile)."""
     processed = tmp_path / "processed"
     processed.mkdir()
 
     rng = np.random.default_rng(0)
-    patch_ids = []
-    for i in range(4):
-        arr = rng.integers(100, 5000, size=(5, 64, 64)).astype(np.float32)
-        pid = f"patch_{i:03d}"
-        np.save(processed / f"{pid}.npy", arr)
-        patch_ids.append(pid)
+    tile_stem = "test_tile"
+    patches = rng.integers(100, 5000, size=(4, 5, 64, 64)).astype(np.float32)
+    np.save(processed / f"{tile_stem}.npy", patches)
+    patch_ids = [f"{tile_stem}_p{i:05d}" for i in range(4)]
 
     # band stats
     stats = compute_band_stats(processed)

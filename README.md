@@ -27,7 +27,7 @@ Adjust `--bbox` and `--dates` to target your wildfire ROI. Downloads 5-band GeoT
 python -m src.data.patch --input data/raw --output data/processed
 ```
 
-Slices each GeoTIFF into 64×64 `.npy` patches and computes `data/processed/band_stats.json`.
+Slices each GeoTIFF into 64×64 patches stored as one stacked `.npy` per tile and computes `data/processed/band_stats.json`.
 
 ### 3. Label patches
 

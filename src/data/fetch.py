@@ -16,6 +16,30 @@ from rasterio.enums import Resampling
 
 logger = logging.getLogger(__name__)
 
+
+def _make_vsicurl_clear_cache():
+    """Return a callable that clears GDAL's /vsicurl/ metadata cache, or *None*."""
+    try:
+        from osgeo import gdal
+        return gdal.VSICurlClearCache
+    except ImportError:
+        pass
+    try:
+        import ctypes
+        libs_dir = Path(rasterio.__file__).parent.parent / "rasterio.libs"
+        for candidate in libs_dir.glob("gdal*"):
+            lib = ctypes.CDLL(str(candidate))
+            fn = lib.VSICurlClearCache
+            fn.restype = None
+            fn.argtypes = []
+            return fn
+    except Exception:
+        pass
+    return None
+
+
+_vsicurl_clear_cache = _make_vsicurl_clear_cache()
+
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 COLLECTION = "sentinel-2-l2a"
 BANDS = ("B02", "B03", "B04", "B11", "B12")
@@ -75,12 +99,16 @@ def download_bands(
     item_id = item.id
 
     out_path = out_dir / f"{item_id}.tif"
+    tmp_path = out_path.with_suffix(".tif.tmp")
     if out_path.exists():
         logger.info("Skipping %s (already downloaded)", item_id)
         return out_path
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
+            if attempt > 1 and _vsicurl_clear_cache:
+                _vsicurl_clear_cache()
+
             # Re-sign to get a fresh SAS token (previous one may have expired).
             item = pc.sign_item(item)
 
@@ -114,17 +142,19 @@ def download_bands(
 
                     arrays.append(data)
 
-            with rasterio.open(out_path, "w", **profile) as dst:
+            with rasterio.open(tmp_path, "w", **profile) as dst:
                 for idx, arr in enumerate(arrays, start=1):
                     dst.write(arr, idx)
+            tmp_path.replace(out_path)
 
             logger.info("Saved %d-band stack → %s", len(bands), out_path)
             return out_path
 
         except (rasterio.errors.RasterioIOError, rasterio.errors.RasterioError) as exc:
-            # Clean up partial file
-            if out_path.exists():
-                out_path.unlink()
+            # Clean up partial/temp files
+            for p in (tmp_path, out_path):
+                if p.exists():
+                    p.unlink()
             if attempt < MAX_RETRIES:
                 wait = RETRY_BACKOFF * attempt
                 logger.warning(

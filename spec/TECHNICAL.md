@@ -15,7 +15,7 @@ SmokeSignal/
 │   └── TECHNICAL.md          # ← this file
 ├── data/
 │   ├── raw/                  # downloaded Sentinel-2 patches (GeoTIFF)
-│   ├── processed/            # normalised .npy arrays
+│   ├── processed/            # stacked per-tile .npy arrays (N, 5, 64, 64)
 │   └── labels.csv            # columns: patch_id, label (smoke | clear)
 ├── src/
 │   ├── data/
@@ -88,7 +88,7 @@ Download each band asset as a GeoTIFF using `rasterio`. Resample B11/B12 from 20
 
 - **Patch size**: 64 × 64 pixels (640 m × 640 m at 10 m/px).
 - **Stride**: 32 px (50 % overlap) to increase sample count.
-- **Output**: 5-channel NumPy array `(5, 64, 64)` as `float32`, saved to `data/processed/`.
+- **Output**: 5-channel NumPy arrays stacked per tile as `(N, 5, 64, 64)` `float32`, saved to `data/processed/<tile_stem>.npy`.
 - **Normalization**: per-band min-max scaling to `[0, 1]` using dataset-wide statistics computed once after all patches are extracted.
 
 ### 2.5  Labelling

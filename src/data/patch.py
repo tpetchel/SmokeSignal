@@ -1,4 +1,9 @@
-"""Patch extraction and normalization from multi-band Sentinel-2 GeoTIFFs."""
+"""Patch extraction and normalization from multi-band Sentinel-2 GeoTIFFs.
+
+Patches are stored as **one stacked ``.npy`` file per source tile** with shape
+``(N, NUM_BANDS, PATCH_SIZE, PATCH_SIZE)``.  Patch *i* in the file has ID
+``<tile_stem>_p{i:05d}``.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +19,16 @@ logger = logging.getLogger(__name__)
 PATCH_SIZE = 64
 STRIDE = 32
 NUM_BANDS = 5
+MIN_VALID_FRACTION = 0.8  # drop patches with >20% nodata pixels
+
+
+def _is_valid_patch(patch: np.ndarray) -> bool:
+    """Return *True* if *patch* passes all quality filters."""
+    if patch.shape != (NUM_BANDS, PATCH_SIZE, PATCH_SIZE):
+        return False
+    if patch.max() == 0:
+        return False
+    return np.count_nonzero(patch[0]) / patch[0].size >= MIN_VALID_FRACTION
 
 
 def extract_patches(
@@ -21,52 +36,82 @@ def extract_patches(
     out_dir: Path,
     patch_size: int = PATCH_SIZE,
     stride: int = STRIDE,
-) -> list[Path]:
-    """Slice a multi-band GeoTIFF into (NUM_BANDS, patch_size, patch_size) .npy files.
+) -> int:
+    """Slice a multi-band GeoTIFF into patches saved as a single stacked ``.npy``.
 
-    Returns a list of saved patch paths.
+    The output file ``out_dir / <tif_stem>.npy`` has shape
+    ``(N, NUM_BANDS, patch_size, patch_size)``.
+
+    Returns the number of valid patches written.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = tif_path.stem
-    saved: list[Path] = []
 
+    logger.info("Reading %s …", tif_path.name)
     with rasterio.open(tif_path) as src:
         data = src.read().astype(np.float32)  # (bands, H, W)
 
     _, h, w = data.shape
-    patch_idx = 0
+    n_rows = max(1, (h - patch_size) // stride + 1) if h >= patch_size else 0
+    log_every = max(1, n_rows // 10)
 
+    # --- Pass 1: count valid patches so we can pre-allocate ------------------
+    count = 0
+    row_i = 0
+    for y in range(0, h - patch_size + 1, stride):
+        for x in range(0, w - patch_size + 1, stride):
+            if _is_valid_patch(data[:, y : y + patch_size, x : x + patch_size]):
+                count += 1
+        row_i += 1
+        if row_i % log_every == 0:
+            logger.info("  [scan]  %d%% (%d valid so far)", 100 * row_i // n_rows, count)
+
+    if count == 0:
+        logger.info("No valid patches in %s — skipped.", tif_path.name)
+        del data
+        return 0
+
+    # --- Pass 2: write patches into a memory-mapped .npy ---------------------
+    out_path = out_dir / f"{stem}.npy"
+    fp = np.lib.format.open_memmap(
+        str(out_path),
+        mode="w+",
+        dtype=np.float32,
+        shape=(count, NUM_BANDS, patch_size, patch_size),
+    )
+
+    idx = 0
+    row_i = 0
     for y in range(0, h - patch_size + 1, stride):
         for x in range(0, w - patch_size + 1, stride):
             patch = data[:, y : y + patch_size, x : x + patch_size]
-            if patch.shape != (NUM_BANDS, patch_size, patch_size):
-                continue
-            # skip patches that are entirely zero (no-data)
-            if patch.max() == 0:
-                continue
-            out_path = out_dir / f"{stem}_p{patch_idx:05d}.npy"
-            np.save(out_path, patch)
-            saved.append(out_path)
-            patch_idx += 1
+            if _is_valid_patch(patch):
+                fp[idx] = patch
+                idx += 1
+        row_i += 1
+        if row_i % log_every == 0:
+            logger.info("  [write] %d%%", 100 * row_i // n_rows)
 
-    logger.info("Extracted %d patches from %s", len(saved), tif_path.name)
-    return saved
+    fp.flush()
+    del fp, data
+
+    logger.info("Extracted %d patches from %s", count, tif_path.name)
+    return count
 
 
 def compute_band_stats(processed_dir: Path) -> dict[str, list[float]]:
-    """Compute per-band min and max across all .npy patches in *processed_dir*.
+    """Compute per-band min and max across all stacked ``.npy`` tiles.
 
     Returns ``{"min": [b0, …, b4], "max": [b0, …, b4]}``.
     """
     band_min = np.full(NUM_BANDS, np.inf, dtype=np.float64)
     band_max = np.full(NUM_BANDS, -np.inf, dtype=np.float64)
 
-    npy_files = sorted(processed_dir.glob("*.npy"))
-    for p in npy_files:
-        arr = np.load(p)  # (bands, 64, 64)
-        for b in range(arr.shape[0]):
-            band_min[b] = min(band_min[b], float(arr[b].min()))
-            band_max[b] = max(band_max[b], float(arr[b].max()))
+    for p in sorted(processed_dir.glob("*.npy")):
+        arr = np.load(p, mmap_mode="r")  # (N, bands, 64, 64)
+        for b in range(NUM_BANDS):
+            band_min[b] = min(band_min[b], float(arr[:, b].min()))
+            band_max[b] = max(band_max[b], float(arr[:, b].max()))
 
     stats = {"min": band_min.tolist(), "max": band_max.tolist()}
     stats_path = processed_dir / "band_stats.json"
