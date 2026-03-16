@@ -81,7 +81,7 @@ def train(
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 
     # --- class imbalance weight ---
-    labels = [s[1] for s in dataset.samples]
+    labels = [s[-1] for s in dataset.samples]
     n_pos = sum(labels)
     n_neg = len(labels) - n_pos
     pos_weight = torch.tensor([n_neg / max(n_pos, 1)], device=DEVICE)
