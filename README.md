@@ -1,7 +1,10 @@
 # SmokeSignal
+
 Detecting Wildfire Haze from Space
 
 A toy binary classifier that distinguishes **smoke** vs. **clear** scenes in Sentinel-2 satellite imagery, served as a FastAPI endpoint and deployable to Azure Container Instances.
+
+![Map visualization showing satellite imagery with smoke detection overlay, displaying haze and clear regions across a Northern California wildfire area with coordinate labels and color-coded classification zones](doc/map_endpoint.png)
 
 ## Setup
 
