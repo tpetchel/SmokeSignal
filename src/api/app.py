@@ -45,5 +45,7 @@ async def health():
 
 # Import the score router after app is defined to avoid circular imports.
 from src.api.score import router as score_router  # noqa: E402
+from src.api.map import router as map_router  # noqa: E402
 
 app.include_router(score_router)
+app.include_router(map_router)
